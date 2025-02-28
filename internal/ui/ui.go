@@ -239,7 +239,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) renderList() string {
 	var b strings.Builder
 	// Show the target directory info, but not the main title.
-	b.WriteString(fmt.Sprintf("LM Studio Models: %s\n\n", m.targetDir))
+	hfCache, _ := fsutils.GetHfCacheDir()
+	hfCacheLine := lipgloss.NewStyle().
+		Align(lipgloss.Center).
+		Width(m.width).
+		Render(fmt.Sprintf("Hugging Face Cache: %s", hfCache))
+	b.WriteString(hfCacheLine)
+	b.WriteString("\n")
+	lmsModelsCacheLine := lipgloss.NewStyle().
+		Align(lipgloss.Center).
+		Width(m.width).
+		Render(fmt.Sprintf("LM Studio Models: %s", m.targetDir))
+	b.WriteString(lmsModelsCacheLine)
+	b.WriteString("\n\n")
 	for i, item := range m.combined {
 		pointer := " "
 		if i == m.selectedIndex {
@@ -256,11 +268,11 @@ func (m model) renderList() string {
 
 		var statusText string
 		if item.IsStale {
-			statusText = fmt.Sprintf(" Stale Link (%s)", item.StaleReason)
+			statusText = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(fmt.Sprintf(" [Stale Link (%s)]", item.StaleReason))
 		} else if item.IsLinked {
-			statusText = " Linked"
+			statusText = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Render(" [Linked]")
 		} else {
-			statusText = " Not Linked"
+			statusText = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Render(" [Not Linked]")
 		}
 
 		line := fmt.Sprintf("%s %s %s - %s%s", pointer, statusIcon, item.ModelName, item.OrganizationName, statusText)
@@ -278,6 +290,8 @@ func (m model) View() string {
 	// Create a static title bar.
 	titleBar := lipgloss.NewStyle().
 		Bold(true).
+		Background(lipgloss.Color("#333")).
+		Foreground(lipgloss.Color("#FFF")).
 		Align(lipgloss.Center).
 		Width(m.width).
 		Render("Hugging Face to LM Studio Sync")
