@@ -1,0 +1,52 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Build hf-lms-sync",
+        "type": "shell",
+        "command": "go build -o hf-lms-sync ./cmd/hf-lms-sync",
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        },
+        "problemMatcher": [
+          "$go"
+        ]
+      },
+      {
+        "label": "Run hf-lms-sync",
+        "type": "shell",
+        "command": "./hf-lms-sync",
+        "dependsOn": "Build hf-lms-sync",
+        "group": {
+          "kind": "test",
+          "isDefault": true
+        },
+        "problemMatcher": []
+      },
+      {
+        "label": "Test All",
+        "type": "shell",
+        "command": "go test ./...",
+        "group": {
+          "kind": "test",
+          "isDefault": true
+        },
+        "problemMatcher": ["$go"]
+      },
+      {
+        "label": "Run Air in Debug Mode",
+        "type": "shell",
+        "command": "air",
+        "group": "none",
+        "presentation": {
+          "echo": true,
+          "reveal": "always",
+          "focus": false,
+          "panel": "dedicated"
+        },
+        "problemMatcher": []
+      }
+    ]
+  }
+  

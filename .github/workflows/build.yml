@@ -1,0 +1,69 @@
+name: Build Cross-Platform Binaries and Source Distribution
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ created ]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            ext: ""
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+            ext: ""
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            ext: ""
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+            ext: ".exe"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+
+      - name: Build binary
+        run: |
+          mkdir -p build
+          echo "Building for GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }}"
+          env GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+            go build -ldflags="-s -w" -o build/hf-lms-sync${{ matrix.ext }} ./cmd/hf-lms-sync
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: hf-lms-sync-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: build/hf-lms-sync${{ matrix.ext }}
+
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Create source archive
+        run: |
+          git archive --format tar.gz -o hf-lms-sync-src.tar.gz HEAD
+
+      - name: Upload source distribution
+        uses: actions/upload-artifact@v3
+        with:
+          name: hf-lms-sync-src
+          path: hf-lms-sync-src.tar.gz
