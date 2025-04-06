@@ -93,6 +93,24 @@ type ModelInfo struct {
 	StaleReason      string
 }
 
+// verifySymlinks checks if all symlinks in a directory are valid
+func verifySymlinks(dir string) bool {
+	entries, err := ioutil.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	
+	for _, entry := range entries {
+		if entry.Mode()&os.ModeSymlink != 0 {
+			path := filepath.Join(dir, entry.Name())
+			if _, err := os.Readlink(path); err != nil {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // LoadModels scans the Hugging Face cache directory for model directories and returns a slice of ModelInfo.
 func LoadModels(targetDir string) ([]ModelInfo, error) {
 	hfCache, err := GetHfCacheDir()
@@ -127,7 +145,8 @@ func LoadModels(targetDir string) ([]ModelInfo, error) {
 		targetPath := filepath.Join(targetDir, organization, modelName)
 		isLinked := false
 		if _, err := os.Stat(filepath.Join(targetPath, metadataFile)); err == nil {
-			isLinked = true
+			// Only mark as linked if both metadata file exists and symlinks are valid
+			isLinked = verifySymlinks(targetPath)
 		}
 		models = append(models, ModelInfo{
 			CacheDirName:     entry.Name(),
@@ -194,9 +213,18 @@ func LinkModel(m ModelInfo) error {
 	if err != nil {
 		return err
 	}
+	
+	// Clean up existing target directory if it exists
+	if _, err := os.Stat(m.TargetPath); err == nil {
+		if err := os.RemoveAll(m.TargetPath); err != nil {
+			return fmt.Errorf("failed to clean up existing target directory: %v", err)
+		}
+	}
+	
 	if err := os.MkdirAll(m.TargetPath, 0755); err != nil {
 		return err
 	}
+	
 	for _, snapDir := range snapshotDirs {
 		if !snapDir.IsDir() {
 			continue
@@ -209,15 +237,15 @@ func LinkModel(m ModelInfo) error {
 		for _, file := range files {
 			src := filepath.Join(snapPath, file.Name())
 			dst := filepath.Join(m.TargetPath, file.Name())
-			if _, err := os.Lstat(dst); err == nil {
-				os.Remove(dst)
-			}
+			
+			// Always try to resolve the real source file
 			realSource, err := filepath.EvalSymlinks(src)
 			if err != nil {
-				realSource = src
+				return fmt.Errorf("failed to resolve symlink for %s: %v", src, err)
 			}
+			
 			if err := os.Symlink(realSource, dst); err != nil {
-				return err
+				return fmt.Errorf("failed to create symlink from %s to %s: %v", realSource, dst, err)
 			}
 		}
 	}

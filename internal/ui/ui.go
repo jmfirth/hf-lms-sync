@@ -17,6 +17,7 @@ type model struct {
 	models        []fsutils.ModelInfo
 	stale         []fsutils.ModelInfo
 	combined      []fsutils.ModelInfo
+	filtered      []fsutils.ModelInfo // Filtered list based on search
 	selectedIndex int
 	status        string
 	targetDir     string
@@ -24,6 +25,10 @@ type model struct {
 	viewport viewport.Model // viewport for the scrolling list
 	width    int
 	height   int
+
+	searching     bool   // Whether we're in search mode
+	searchQuery   string // Current search query
+	searchMatches int    // Number of matches found
 
 	quitting bool
 }
@@ -40,9 +45,13 @@ func New(targetDir string) tea.Model {
 		models:        models,
 		stale:         stale,
 		combined:      combined,
+		filtered:      combined, // Initially show all models
 		selectedIndex: 0,
 		status:        fmt.Sprintf("Found %d model(s) and %d stale reference(s).", len(models), len(stale)),
 		targetDir:     targetDir,
+		searching:     false,
+		searchQuery:   "",
+		searchMatches: len(combined),
 	}
 }
 
@@ -142,50 +151,97 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		// Reserve 2 lines for status and command bar; title is rendered separately.
+		// Reserve space for title (1), command bar (1), and status bar (1)
 		viewportHeight := m.height - 3
 		m.viewport = viewport.New(m.width, viewportHeight)
+		m.viewport.YPosition = 1 // Position viewport below title
 		m.viewport.SetContent(m.renderList())
 		return m, nil
 
 	case tea.KeyMsg:
 		var cmds []tea.Cmd
 
-		// Process custom commands first.
+		// Handle search mode separately
+		if m.searching {
+			switch msg.String() {
+			case "ctrl+c", "esc":
+				m.searching = false
+				m.searchQuery = ""
+				m.filtered = m.combined
+				m.searchMatches = len(m.combined)
+				m.status = fmt.Sprintf("Search cancelled. Found %d model(s) and %d stale reference(s).", len(m.models), len(m.stale))
+				m.viewport.SetContent(m.renderList())
+				return m, nil
+			case "ctrl+u":
+				m.searchQuery = ""
+				m.updateSearch()
+				return m, nil
+			case "enter":
+				m.searching = false
+				m.status = fmt.Sprintf("Found %d matches", m.searchMatches)
+				m.viewport.SetContent(m.renderList())
+				return m, nil
+			case "backspace":
+				if len(m.searchQuery) > 0 {
+					m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
+					m.updateSearch()
+				}
+				return m, nil
+			default:
+				// In search mode, treat all other keys as potential search input
+				if len(msg.String()) == 1 {
+					m.searchQuery += msg.String()
+					m.updateSearch()
+				}
+				return m, nil
+			}
+		}
+
+		// Handle normal mode commands
 		switch msg.String() {
 		case "ctrl+c", "q", "Q":
 			m.quitting = true
 			return m, tea.Quit
-
+		case "/":
+			m.searching = true
+			m.status = fmt.Sprintf("Search: %s", m.searchQuery)
+			m.viewport.SetContent(m.renderList())
+			return m, nil
 		case "up", "k":
 			if m.selectedIndex > 0 {
 				m.selectedIndex--
-			} else if len(m.combined) > 0 {
-				m.selectedIndex = len(m.combined) - 1
+				// Ensure selected item is visible
+				if m.selectedIndex < m.viewport.YOffset {
+					m.viewport.YOffset = m.selectedIndex
+				}
 			}
 		case "down", "j":
-			if len(m.combined) > 0 {
-				m.selectedIndex = (m.selectedIndex + 1) % len(m.combined)
+			if m.selectedIndex < len(m.filtered)-1 {
+				m.selectedIndex++
+				// Ensure selected item is visible
+				if m.selectedIndex >= m.viewport.YOffset+m.viewport.Height {
+					m.viewport.YOffset = m.selectedIndex - m.viewport.Height + 1
+				}
 			}
 		case "l":
-			if len(m.combined) > 0 {
-				selected := m.combined[m.selectedIndex]
+			if len(m.filtered) > 0 {
+				selected := m.filtered[m.selectedIndex]
 				if !selected.IsStale && !selected.IsLinked {
 					m.status = "Linking model: " + selected.ModelName
 					cmds = append(cmds, linkModelCmd(selected, m.targetDir))
 				}
 			}
 		case "u":
-			if len(m.combined) > 0 {
-				selected := m.combined[m.selectedIndex]
+			if len(m.filtered) > 0 {
+				selected := m.filtered[m.selectedIndex]
 				if !selected.IsStale && selected.IsLinked {
 					m.status = "Unlinking model: " + selected.ModelName
 					cmds = append(cmds, unlinkModelCmd(selected, m.targetDir))
 				}
 			}
 		case "c":
-			if len(m.combined) > 0 {
-				selected := m.combined[m.selectedIndex]
+			if len(m.filtered) > 0 {
+				selected := m.filtered[m.selectedIndex]
 				if selected.IsStale {
 					m.status = "Purging stale model: " + selected.ModelName
 					cmds = append(cmds, purgeModelCmd(selected, m.targetDir))
@@ -208,8 +264,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, vpCmd)
 
 		// Update the viewport content.
-		m.viewport.SetContent(m.renderList())
-		return m, tea.Batch(cmds...)
+		if len(cmds) > 0 {
+			m.viewport.SetContent(m.renderList())
+			return m, tea.Batch(cmds...)
+		}
+		return m, nil
 
 	// Process other messages (like opResultMsg, errorMsg, etc.)
 	case opResultMsg:
@@ -220,11 +279,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		sort.Slice(m.combined, func(i, j int) bool {
 			return m.combined[i].CacheDirName < m.combined[j].CacheDirName
 		})
-		if m.selectedIndex >= len(m.combined) {
+		// Update filtered list and maintain search if active
+		if m.searching {
+			m.updateSearch()
+		} else {
+			m.filtered = m.combined
+		}
+		if m.selectedIndex >= len(m.filtered) {
 			m.selectedIndex = 0
 		}
-		// Update viewport content so UI re-renders with the new state.
+		// Update viewport content and ensure selected item remains visible
 		m.viewport.SetContent(m.renderList())
+		if m.selectedIndex < m.viewport.YOffset {
+			m.viewport.YOffset = m.selectedIndex
+		} else if m.selectedIndex >= m.viewport.YOffset+m.viewport.Height {
+			m.viewport.YOffset = m.selectedIndex - m.viewport.Height + 1
+		}
 		return m, nil
 
 	case errorMsg:
@@ -233,6 +303,49 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// updateSearch filters the combined list based on the current search query
+func (m *model) updateSearch() {
+	if m.searchQuery == "" {
+		m.filtered = m.combined
+		m.searchMatches = len(m.combined)
+		m.status = fmt.Sprintf("Search: %s", m.searchQuery)
+		m.viewport.SetContent(m.renderList())
+		return
+	}
+
+	query := strings.ToLower(m.searchQuery)
+	var filtered []fsutils.ModelInfo
+	for _, item := range m.combined {
+		if strings.Contains(strings.ToLower(item.ModelName), query) ||
+			strings.Contains(strings.ToLower(item.OrganizationName), query) {
+			filtered = append(filtered, item)
+		}
+	}
+	m.filtered = filtered
+	m.searchMatches = len(filtered)
+	m.status = fmt.Sprintf("Search: %s (%d matches)", m.searchQuery, m.searchMatches)
+	m.viewport.SetContent(m.renderList())
+}
+
+// highlightMatch adds highlighting to matching text
+func (m model) highlightMatch(text string) string {
+	if !m.searching || m.searchQuery == "" {
+		return text
+	}
+	
+	query := strings.ToLower(m.searchQuery)
+	textLower := strings.ToLower(text)
+	if !strings.Contains(textLower, query) {
+		return text
+	}
+
+	highlighted := lipgloss.NewStyle().
+		Background(lipgloss.Color("4")).
+		Foreground(lipgloss.Color("15")).
+		Render(text)
+	return highlighted
 }
 
 // renderList builds the scrollable list content (without the title).
@@ -252,7 +365,7 @@ func (m model) renderList() string {
 		Render(fmt.Sprintf("LM Studio Models: %s", m.targetDir))
 	b.WriteString(lmsModelsCacheLine)
 	b.WriteString("\n\n")
-	for i, item := range m.combined {
+	for i, item := range m.filtered {
 		pointer := " "
 		if i == m.selectedIndex {
 			pointer = "‣"
@@ -266,16 +379,10 @@ func (m model) renderList() string {
 			statusIcon = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Render("⦿")
 		}
 
-		var statusText string
-		if item.IsStale {
-			statusText = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(fmt.Sprintf(" [Stale Link (%s)]", item.StaleReason))
-		} else if item.IsLinked {
-			statusText = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Render(" [Linked]")
-		} else {
-			statusText = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Render(" [Not Linked]")
-		}
+		modelName := m.highlightMatch(item.ModelName)
+		orgName := m.highlightMatch(item.OrganizationName)
 
-		line := fmt.Sprintf("%s %s %s - %s%s", pointer, statusIcon, item.ModelName, item.OrganizationName, statusText)
+		line := fmt.Sprintf("%s %s %s/%s", pointer, statusIcon, orgName, modelName)
 		b.WriteString(line + "\n")
 	}
 	return b.String()
@@ -296,13 +403,23 @@ func (m model) View() string {
 		Width(m.width).
 		Render("Hugging Face to LM Studio Sync")
 
-	// Render the status and command bars as before.
-	statusBar := fmt.Sprintf("Status: %s", m.status)
+	// Render the status and command bars
+	var statusBar string
+	if m.searching {
+		statusBar = m.status // During search, show raw status without prefix
+	} else {
+		statusBar = fmt.Sprintf("Status: %s", m.status)
+	}
 	commandBarStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color("#333")).
 		Foreground(lipgloss.Color("#FFF")).
 		Width(m.width)
-	commandBar := commandBarStyle.Render("↑/k: Up | ↓/j: Down | l: Link | u: Unlink | c: Purge | L: Link All | U: Unlink All | C: Purge All | q: Quit")
+	var commandBar string
+	if m.searching {
+		commandBar = commandBarStyle.Render("Type to search | Enter: Accept | Esc/Ctrl+C: Cancel | Ctrl+U: Clear")
+	} else {
+		commandBar = commandBarStyle.Render("↑/k: Up | ↓/j: Down | /: Search | l: Link | u: Unlink | c: Purge | L: Link All | U: Unlink All | C: Purge All | q: Quit")
+	}
 
 	// Combine the title, viewport, status, and command bar.
 	return titleBar + "\n" + m.viewport.View() + "\n" + commandBar + "\n" + statusBar
