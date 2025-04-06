@@ -8,8 +8,8 @@ Hugging Face to LM Studio Sync helps users keep their model caches in sync. It s
 
 ## Features
 
-- **Interactive Terminal UI:**  
-  A dynamic, scrollable list of models with a persistent title bar and command bar displaying available hotkeys.
+- **Enhanced Terminal UI:**  
+  A dynamic, scrollable list of models with a persistent title bar and command bar that adapts to the full width of the terminal window. Color-coded status indicators make it easy to identify linked, unlinked, and stale models.
 
 - **Cross-Platform Support:**  
   Automatically detects cache directories based on the operating system, ensuring seamless operation on macOS, Windows, and Linux.
@@ -60,13 +60,17 @@ Run the tool from your terminal:
 - If no `target_directory` is provided, the tool will automatically determine the LM Studio models cache directory based on your operating system.
 - Use the arrow keys (or `j`/`k`) to navigate through the list.
 - Available commands (displayed in the command bar):
-  - **l**: Link the selected model.
-  - **u**: Unlink the selected model.
-  - **c**: Purge (clean) the selected model if stale.
-  - **L**: Link all unlinked models.
-  - **U**: Unlink all linked models.
-  - **C**: Purge all stale links.
-  - **q**: Quit the application.
+  - **l**: Link the selected model
+  - **u**: Unlink the selected model
+  - **c**: Purge (clean) the selected model if stale
+  - **L**: Link all unlinked models
+  - **U**: Unlink all linked models
+  - **C**: Purge all stale links
+  - **↑/k**: Navigate up in the list
+  - **↓/j**: Navigate down in the list
+  - **/** : Search for models (by organization name or model name)
+  - **?** : Toggle help view for all available commands
+  - **q**: Quit the application
 
 ## Development
 
