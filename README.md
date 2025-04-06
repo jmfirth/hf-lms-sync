@@ -47,8 +47,15 @@ Hugging Face to LM Studio Sync helps users keep their model caches in sync. It s
 Run the tool from your terminal:
 
 ```bash
-./hf-lms-sync [target_directory]
+./hf-lms-sync [options] [target_directory]
 ```
+
+#### Options
+
+- `--verbose`: Enable detailed logging to `hf-lmfs-sync.log` in the current directory. Log messages are written to the file only, not to the console, to avoid disrupting the terminal UI.
+- `--help`: Display usage information
+
+#### Basic Operation
 
 - If no `target_directory` is provided, the tool will automatically determine the LM Studio models cache directory based on your operating system.
 - Use the arrow keys (or `j`/`k`) to navigate through the list.
