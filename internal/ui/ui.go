@@ -142,9 +142,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		// Reserve 2 lines for status and command bar; title is rendered separately.
+		// Reserve space for title (1), command bar (1), and status bar (1)
 		viewportHeight := m.height - 3
 		m.viewport = viewport.New(m.width, viewportHeight)
+		m.viewport.YPosition = 1 // Position viewport below title
 		m.viewport.SetContent(m.renderList())
 		return m, nil
 
@@ -160,12 +161,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.selectedIndex > 0 {
 				m.selectedIndex--
-			} else if len(m.combined) > 0 {
-				m.selectedIndex = len(m.combined) - 1
+				// Ensure selected item is visible
+				if m.selectedIndex < m.viewport.YOffset {
+					m.viewport.YOffset = m.selectedIndex
+				}
 			}
 		case "down", "j":
-			if len(m.combined) > 0 {
-				m.selectedIndex = (m.selectedIndex + 1) % len(m.combined)
+			if m.selectedIndex < len(m.combined)-1 {
+				m.selectedIndex++
+				// Ensure selected item is visible
+				if m.selectedIndex >= m.viewport.YOffset+m.viewport.Height {
+					m.viewport.YOffset = m.selectedIndex - m.viewport.Height + 1
+				}
 			}
 		case "l":
 			if len(m.combined) > 0 {
@@ -223,8 +230,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.selectedIndex >= len(m.combined) {
 			m.selectedIndex = 0
 		}
-		// Update viewport content so UI re-renders with the new state.
+		// Update viewport content and ensure selected item remains visible
 		m.viewport.SetContent(m.renderList())
+		if m.selectedIndex < m.viewport.YOffset {
+			m.viewport.YOffset = m.selectedIndex
+		} else if m.selectedIndex >= m.viewport.YOffset+m.viewport.Height {
+			m.viewport.YOffset = m.selectedIndex - m.viewport.Height + 1
+		}
 		return m, nil
 
 	case errorMsg:
@@ -266,16 +278,19 @@ func (m model) renderList() string {
 			statusIcon = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Render("⦿")
 		}
 
-		var statusText string
-		if item.IsStale {
-			statusText = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(fmt.Sprintf(" [Stale Link (%s)]", item.StaleReason))
-		} else if item.IsLinked {
-			statusText = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Render(" [Linked]")
-		} else {
-			statusText = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Render(" [Not Linked]")
-		}
+		// var statusText string
+		// if item.IsStale {
+		// 	statusText = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(fmt.Sprintf(" [Stale Link (%s)]", item.StaleReason))
+		// } else if item.IsLinked {
+		// 	statusText = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Render(" [Linked]")
+		// } else {
+		// 	statusText = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Render(" [Not Linked]")
+		// }
 
-		line := fmt.Sprintf("%s %s %s - %s%s", pointer, statusIcon, item.ModelName, item.OrganizationName, statusText)
+		// organizationName := lipgloss.NewStyle().Foreground(lipgloss.Color("#ccc")).Render(item.OrganizationName)
+		modelName := lipgloss.NewStyle().Foreground(lipgloss.Color("#fff")).Render(item.ModelName)
+
+		line := fmt.Sprintf("%s %s %s/%s", pointer, statusIcon, item.OrganizationName, modelName)
 		b.WriteString(line + "\n")
 	}
 	return b.String()

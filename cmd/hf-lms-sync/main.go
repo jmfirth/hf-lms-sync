@@ -25,12 +25,10 @@ func main() {
 	}
 
 	// Determine and print Hugging Face cache directory.
-	hfCache, err := fsutils.GetHfCacheDir()
+	_, err := fsutils.GetHfCacheDir()
 	if err != nil {
 		log.Fatalf("Error determining Hugging Face cache directory: %v", err)
 	}
-	fmt.Printf("Hugging Face Cache: %s\n", hfCache)
-	fmt.Printf("LM Studio Models: %s\n\n", targetDir)
 
 	// Start the Bubble Tea program.
 	p := tea.NewProgram(ui.New(targetDir))
